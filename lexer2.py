@@ -9,123 +9,122 @@ import ply.lex as lex
 # List of token names.   This is always required
 
 reserved = {
-	'if' : 'IF',
-	'then': 'THEN',
-	'fi' : 'FI',
-	'while' : 'WHILE',
-	'begin' : 'BEGIN',
-	'var' : 'VAR',
-	'with' : 'WITH',
-	'do': 'DO',
-	'od' : 'OD',
-	'bool' : 'BOOL',
-	'for' : 'FOR',
-	'end' : 'END',
-	'True' : 'TRUE',
-	'False' : 'FALSE'
+	'if' : 'TkIf',
+	'then': 'TkThen',
+	'fi' : 'TkFi',
+	'while' : 'TkWhile',
+	'begin' : 'TkBegin',
+	'var' : 'TkVar',
+	'with' : 'TkWith',
+	'do': 'TkDo',
+	'od' : 'TkOd',
+	'bool' : 'TkBool',
+	'for' : 'TkFor',
+	'end' : 'TkEnd',
+	'True' : 'TkTrue',
+	'False' : 'TkFalse',
+	'int' : 'TkInt'
 }
 
 tokens = [
-   'Numero',
-   'Caracter',
-   'Id',
-   'Coma',
-   'Punto',
-   'DosPuntos',
-   'ParAbre',
-   'ParCierra',
-   'CorcheteAbre',
-   'CorcheteCierra',
-   'LlaveAbre',
-   'LlaveCierra',
-   'Hacer',
-   'Asignacion',
-   'Suma',
-   'Resta',
-   'Mult',
-   'Div',
-   'Mod',
-   'Conjuncion',
-   'Disyuncion',
-   'Negacion',
-   'Menor',
-   'MenorIgual',
-   'Mayor',
-   'MayorIgual',
-   'Igual',
-   'SiguienteCar',
-   'AnteriorCar',
-   'ValorAscii',
-   'Concatenacion',
-   'Shift',
-   'True',
-   'False'
+   'TkNum',
+   'TkCaracter',
+   'TkId',
+   'TkComa',
+   'TkPunto',
+   'TkDosPuntos',
+   'TkParAbre',
+   'TkParCierra',
+   'TkCorcheteAbre',
+   'TkCorcheteCierra',
+   'TkLlaveAbre',
+   'TkLlaveCierra',
+   'TkHacer',
+   'TkAsignacion',
+   'TkSuma',
+   'TkResta',
+   'TkMult',
+   'TkDiv',
+   'TkMod',
+   'TkConjuncion',
+   'TkDisyuncion',
+   'TkNegacion',
+   'TkMenor',
+   'TkMenorIgual',
+   'TkMayor',
+   'TkMayorIgual',
+   'TkIgual',
+   'TkSiguienteCar',
+   'TkAnteriorCar',
+   'TkValorAscii',
+   'TkConcatenacion',
+   'TkShift',
+   #'TkTrue',
+   #'TkFalse'
 ] + list(reserved.values())
 
 
 # Regular expression rules for simple tokens
-t_Coma				= r','
-t_Punto 			= r'\.'
-t_DosPuntos 		= r':'
-t_ParAbre 			= r'\('
-t_ParCierra			= r'\)'
-t_CorcheteAbre		= r'\['
-t_CorcheteCierra	= r'\]'
-t_LlaveAbre			= r'\{'
-t_LlaveCierra		= r'\}'
-t_Hacer				= r'->'
-t_Asignacion		= r'<-'
-t_Suma				= r'\+'
-t_Resta				= r'\-'
-t_Mult				= r'\*'
-t_Div				= r'\/'
-t_Mod				= r'\%'
-t_Conjuncion		= r'\/\\'
-t_Disyuncion		= r'\/'
-t_Negacion			= r'not'
-t_Menor				= r'<'
-t_MenorIgual		= r'<='
-t_Mayor				= r'>'
-t_MayorIgual		= r'>='
-t_Igual 			= r'='
-t_SiguienteCar		= r'\+\+'
-t_AnteriorCar		= r'--'
-t_ValorAscii		= r'\#'
-t_Concatenacion		= r'::'
-t_Shift				= r'\$'
+t_TkComa				= r','
+t_TkPunto 				= r'\.'
+t_TkDosPuntos 			= r':'
+t_TkParAbre 			= r'\('
+t_TkParCierra			= r'\)'
+t_TkCorcheteAbre		= r'\['
+t_TkCorcheteCierra		= r'\]'
+t_TkLlaveAbre			= r'\{'
+t_TkLlaveCierra			= r'\}'
+t_TkHacer				= r'->'
+t_TkAsignacion			= r'<-'
+t_TkSuma				= r'\+'
+t_TkResta				= r'\-'
+t_TkMult				= r'\*'
+t_TkDiv					= r'\/'
+t_TkMod					= r'\%'
+t_TkConjuncion			= r'\/\\'
+t_TkDisyuncion			= r'\\\/'
+t_TkNegacion			= r'not'
+t_TkMenor				= r'<'
+t_TkMenorIgual			= r'<='
+t_TkMayor				= r'>'
+t_TkMayorIgual			= r'>='
+t_TkIgual 				= r'='
+t_TkSiguienteCar		= r'\+\+'
+t_TkAnteriorCar			= r'--'
+t_TkValorAscii			= r'\#'
+t_TkConcatenacion		= r'::'
+t_TkShift				= r'\$'
 
 # A regular expression rule with some action code
-def t_Numero(t):
+def t_TkNum(t):
     r'\d+'
     t.value = int(t.value)    
     return t
 
-def t_Caracter(t):
-	r'"[a-zA-Z_][a-zA-Z_0-9]*"'
+def t_TkCaracter(t):
+	r'\'[a-zA-Z_][a-zA-Z_0-9]*\''
 	#t.value = str(t.value)
 	return t
 
 # Define a rule so we can track line numbers
-def t_newline(t):
+def t_Tknewline(t):
     r'\n+'
     t.lexer.lineno += len(t.value)
 
-def t_Id(t):
+def t_TkId(t):
     r'[a-zA-Z_][a-zA-Z_0-9]*'
-    t.type = reserved.get(t.value,'Id')    # Check for reserved words
+    t.type = reserved.get(t.value,'TkId')    # Check for reserved words
     return t
 
-def t_True(t):
-	r'True'
-	t.type = reserved.get(t.value,'True')    # Check for reserved words
-	return t
+#def t_TkTrue(t):
+#	r'True'
+#	t.type = reserved.get(t.value,'True')    # Check for reserved words
+#	return t
 
-def t_False(t):
-	r'False'
-	t.type = reserved.get(t.value,'False')    # Check for reserved words
-	return t
-
-
+#def t_TkFalse(t):
+#	r'False'
+#	t.type = reserved.get(t.value,'False')    # Check for reserved words
+#	return t
 
 # A string containing ignored characters (spaces and tabs)
 t_ignore  = ' \t'
@@ -135,5 +134,10 @@ def t_error(t):
     print("Error: Caracter inesperado "+str(t.value[0])+" en la fila "+str(t.lexer.lineno)+" y columna "+str(t.lexer.lexpos)+"\n")
     t.lexer.skip(1)
 
+def t_error2(t):
+	r'[0-9][a-zA-Z_0-9]*'
+	print ("ERROR")
+	t.lexer.skip(1)
+
 # Build the lexer
-lexer = lex.lex()
+lexer = lex.lex() 

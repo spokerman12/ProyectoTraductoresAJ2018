@@ -1,24 +1,43 @@
 from lexer2 import *
 
 # Test it out
-data = '''¡
-3 4 * 10 + ++ if True ! False
-   -20 *2 "dasd" var kak::
-'''
+data = ''' with
+  var contador : int
+
+begin
+  contador <- 35hola .
+
+end'''
+
+filename = "prueba.txt"
+file = open(filename,"r")
 
 # Give the lexer some input
 lexer.input(data)
 
 # Tokenize
-while True:
+linea = 0
+#while True:
 
-    linea = 1
+for line in file:
+    lexer.input(line)
+    
+    while True:
+        tok = lexer.token()
+        if not tok: 
+            break      # No more input
 
-    tok = lexer.token()
+        if (tok.type == "TkId"):
+            salida = tok.type+"('"+tok.value+"')"+" "+str(tok.lineno)+" "+str(tok.lexpos)
 
-    if not tok: 
-        break      # No more input
-    if (tok.lineno != linea):
-        salida = tok.type+" "+str(tok.value)+" "+str(tok.lineno)+" "+str(tok.lexpos)
-        linea = tok.lineno
-        print (str(linea)+salida, end = " ")
+        elif (tok.type == "TkNum"):
+            salida = tok.type+"("+str(tok.value)+")"+" "+str(tok.lineno)+" "+str(tok.lexpos)
+
+        else:
+            salida = tok.type+" "+str(tok.lineno)+" "+str(tok.lexpos)
+
+        if (linea != tok.lineno):
+            linea = tok.lineno
+            print (" ")
+
+        print (salida, end = ", ")
