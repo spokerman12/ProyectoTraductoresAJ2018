@@ -1,0 +1,1743 @@
+#!/usr/bin/python3
+"""
+Titulo: Pars
+
+Descripcion: Analizador lexicografico, sintactico y de contexto.
+             Crea tablas de símbolos y reporta errores. 
+             Fase 3 del proyecto de CI3725 - Traductores e Interpretadores
+
+Autores:Javier Vivas       12-11067 
+        Daniel Francis     12-10863
+
+Fecha: 29/06/2018.
+"""
+import ply.lex as lex
+import ply.yacc as yacc
+import sys, re, os
+
+""" 
+    reserved: Conjunto de palabras (strings) reservadas del interpretador
+
+"""
+
+reserved = {
+    'if'    : 'TkIf',
+    'then'  : 'TkThen',
+    'fi'    : 'TkFi',
+    'while' : 'TkWhile',
+    'begin' : 'TkBegin',
+    'var'   : 'TkVar',
+    'with'  : 'TkWith',
+    'do'    : 'TkDo',
+    'od'    : 'TkOd',
+    'bool'  : 'TkBool',
+    'for'   : 'TkFor',
+    'with'  : 'TkWith',
+    'end'   : 'TkEnd',
+    'int'   : 'TkInt',
+    'string': 'TkString',
+    'double': 'TkDouble',
+    'float' : 'TkFloat',
+    'from'  : 'TkFrom',
+    'to'    : 'TkTo',
+    'print' : 'TkPrint',
+    'true'  : 'TkTrue',
+    'false' : 'TkFalse',
+    'of'    : 'TkOf',
+    'otherwise' : 'TkOtherwise',
+    'array' : 'TkArray',
+    'read' : 'TkRead',
+    'step' : 'TkStep',
+    'not' : 'TkNegacion',
+    'char' : 'TkChar'
+}
+
+"""
+    tokens: Conjunto de palabras que representan los distintos tipos de tokens a ser
+            reconocidos por el interpretador
+
+"""
+
+tokens = [
+   'TkNum',
+   'TkCaracter',
+   'TkId',
+   'TkComa',
+   'TkPunto',
+   'TkPuntoComa',
+   'TkDosPuntos',
+   'TkParAbre',
+   'TkParCierra',
+   'TkCorcheteAbre',
+   'TkCorcheteCierra',
+   'TkLlaveAbre',
+   'TkLlaveCierra',
+   'TkHacer',
+   'TkAsignacion',
+   'TkSuma',
+   'TkResta',
+   'TkMult',
+   'TkDiv',
+   'TkMod',
+   'TkConjuncion',
+   'TkDisyuncion',
+   'TkMenor',
+   'TkMenorIgual',
+   'TkMayor',
+   'TkMayorIgual',
+   'TkIgual',
+   'TkSiguienteCar',
+   'TkAnteriorCar',
+   'TkValorAscii',
+   'TkConcatenacion',
+   'TkShift',
+   'TkNewline',
+   'TkTab',
+   'TkInversa',
+   'TkSimple',
+   'TkDesigual',
+] + list(reserved.values())
+
+tipos =('BEGIN','SECUENCIACION','END','DECLARACION','DECL_ID',
+        'ASIGN','TIPO','ARRAY','INSTRUCCION','CONDICIONAL',
+        'WHILE','FOR','READ','ARITMETICA','MENOSUNARIO',
+        'BOOLEAN','EXPR_CARACTER','CARACTER','EXP_ARREGLO')
+
+"""
+    Lista de simbolos a ser reconocidos por el interpretador
+
+"""
+
+t_TkComa                = r','
+t_TkPunto               = r'\.'
+t_TkPuntoComa           = r';'
+t_TkDosPuntos           = r':'
+t_TkParAbre             = r'\('
+t_TkParCierra           = r'\)'
+t_TkCorcheteAbre        = r'\['
+t_TkCorcheteCierra      = r'\]'
+t_TkLlaveAbre           = r'\{'
+t_TkLlaveCierra         = r'\}'
+t_TkHacer               = r'(?=->)(->)'
+t_TkAsignacion          = r'<-'
+t_TkSuma                = r'\+'
+t_TkResta               = r'\-'
+t_TkMult                = r'\*'
+t_TkDiv                 = r'\/'
+t_TkMod                 = r'\%'
+t_TkConjuncion          = r'\/\\'
+t_TkDisyuncion          = r'\\\/'
+t_TkMenor               = r'<'
+t_TkMenorIgual          = r'<='
+t_TkMayor               = r'>'
+t_TkMayorIgual          = r'>='
+t_TkIgual               = r'='
+t_TkSiguienteCar        = r'\+\+'
+t_TkAnteriorCar         = r'\-\-'
+t_TkValorAscii          = r'\#'
+t_TkConcatenacion       = r'::'
+t_TkShift               = r'\$'
+t_TkNewline             = r'\'\\n\''
+t_TkTab                 = r'\'\\t\''
+t_TkInversa             = r'\\'
+t_TkSimple              = r'\''
+t_TkDesigual            = r'\\='
+
+
+"""
+    def find_column: Halla la posicion 
+    donde inicia el token evaluado en una linea
+
+"""
+def find_column(token):
+    global line
+    line_start = line.rfind('\n', 0, token.lexpos) + 1
+    return (token.lexpos - line_start) + 1
+
+"""
+    t_TkNum: Lee el numero evaluado
+
+"""
+def t_TkNum(t):
+    r'\d+'
+    t.value = int(t.value)    
+    return t
+
+"""
+    t_TkCaracter: Lee el caracter evaluado
+
+
+"""
+def t_TkCaracter(t):
+    r'\'[a-zA-Z_][a-zA-Z_0-9]*\''
+    return t
+
+"""
+    t_Tknewline: Lee el valor de salto de linea
+
+"""
+def t_Tknewline(t):
+    r'\n+'
+    t.lexer.lineno += len(t.value)
+
+"""
+    t_TkId: Lee varios elementos consecutivos y reconoce como string
+
+"""
+def t_TkId(t):
+    r'[a-zA-Z][a-zA-Z_0-9]*'
+    t.type = reserved.get(t.value,'TkId') 
+    return t
+
+t_ignore  = ' \t'
+
+hayError = False
+
+"""
+    t_error: Ocurre cuando el interpretador 
+    encuentra un caracter que no esta en el lenguaje establecido
+
+"""
+def t_error(t):
+    print("Error: Caracter inesperado "+str(t.value[0])+" en la fila "+str(t.lexer.lineno)+" y columna "+str(find_column(t))+"\n")
+    global hayError
+    hayError = True
+    t.lexer.skip(1)
+
+"""
+    Reglas de produccion sintacticas
+"""
+hayWith = False
+precedence = (
+    ('left', 'TkHacer'),
+    ('right', 'TkDosPuntos'),
+    ('right', 'TkIf'),
+    ('right', 'TkNegacion'),
+    ('left', 'TkConjuncion', 'TkDisyuncion'),
+    ('left', 'TkAsignacion'),
+    ('right', 'TkIgual', 'TkDesigual'),
+    ('left', 'TkMenor', 'TkMenorIgual', 'TkMayor', 'TkMayorIgual'),
+    ('left','TkSuma'),
+    ('left','TkMult','TkDiv','TkMod'),
+    ('left', 'TkSiguienteCar', 'TkConcatenacion'),
+    ('left', 'TkAnteriorCar', 'TkShift'),
+    ('right', 'TkValorAscii'),
+    ('right','MenosUnario'),
+    ('left','TkCorcheteCierra'),
+    ('right','TkCorcheteAbre'),
+    ('left','TkParCierra'),
+    ('right','TkParAbre'),
+    ('left','TkPuntoComa'),
+    )
+
+'''
+  
+  Node: Nodo del arbol abstracto sintactico
+
+'''
+
+class Node:
+
+    operacion = None
+    instruccion = None
+    execFlag = True
+
+    def __init__(self,type,children=None,leaf=None,tabs=0):
+         self.type = type
+         if children:
+              self.children = children
+         else:
+              self.children = [ ]
+         self.leaf = leaf
+         self.visitado = False
+         self.tabs = tabs
+
+    def __str__(self):
+        return ('{},{}'.format(self.type.upper(),self.leaf))
+
+
+
+'''
+    Clases de operaciones e instrucciones para los
+    nodos del arbol abstracto.
+
+
+    Operacion: Para cualquier tipo de operacion 
+              (que retorne algo sobre si mismo)
+'''
+
+class Operacion:
+
+  def __init__(self,t1=None,oper=None,t2=None):
+    self.t1 = t1
+    self.t2 = t2
+    self.operador = oper
+
+  def __str__(self):
+    return (str(self.t1)+', '+str(self.operador)+', '+str(self.t2))
+
+  def resultado(self,env):
+    salida = None
+    self.termino1 = self.t1
+    self.termino2 = self.t2
+
+    # print('terminos',self.termino1,self.operador,self.termino2)
+
+    # Si operacion es solo un termino y ya
+    if self.termino2 is None and self.operador is None:
+
+      # - es un id, busco en env su valor      
+      if esId(self.termino1):
+        self.termino1 = getValor(env,self.termino1)
+
+      # - es bool lo devuelvo pythonizado
+      elif self.termino1 == 'true':
+        return True
+      elif self.termino1 == 'false':
+        return False
+      return self.termino1
+
+    # Si operacion es (None,not,T/F)
+    #   - Negacion
+    elif self.termino1 is None and self.operador == 'not':
+
+      # Aseguramos que termino2 sea un booleano
+      if not isinstance(self.termino2,bool):
+        self.termino2 = self.termino2.operacion.resultado(env)
+      if self.termino2 == True:
+        return False
+      elif self.termino2 == False:
+        return True
+      elif esId(self.termino2):
+        return not getValor(env,self.termino2)
+
+    #   - Menos unario (None,-,Num/id/Expr)
+    elif self.termino1 is None and self.operador == '-':
+      if isinstance(self.termino2,Node):
+        return self.termino2.operacion.resultado(env)*-1
+      elif esId(self.termino2):
+        return getValor(env,self.termino2)*-1
+      elif isinstance(self.termino2,int):
+        return self.termino2*-1
+
+    # Si operacion es (char/Id, OperadorChar, None)
+    elif self.termino2 is None and self.operador == '++':
+
+      # - es caracter escapado
+      if self.termino1 == '\'\\n\'':
+        return chr(ord('\n')+1)
+      elif self.termino1 == '\'\\t\'':
+        return chr(ord('\t')+1)
+      elif self.termino1 == '\'\\\'\'':
+        return chr(ord('\'')+1)
+      elif self.termino1 == '\'\\\'':
+        return chr(ord('\\')+1)
+        
+      # - es Id
+      if esId(self.termino1):
+        # -- id de caracter escapado
+        if getValor(env,self.termino1) == '\'\\n\'':
+          return chr(ord('\n')+1)
+        elif getValor(env,self.termino1) == '\'\\t\'':
+          return chr(ord('\t')+1)
+        elif getValor(env,self.termino1) == '\'\\\'\'':
+          return chr(ord('\'')+1)
+        elif getValor(env,self.termino1) == '\'\\\'':
+          return chr(ord('\\')+1)
+
+        return '\''+chr(ord(getValor(env,self.termino1).strip('\''))+1)+'\''
+      else:
+        return '\''+chr(ord(self.termino1.strip('\''))+1)+'\''
+    elif self.termino2 is None and self.operador == '--':
+
+      # - es caracter escapado
+      if self.termino1 == '\'\\n\'':
+        return chr(ord('\n')-1)
+      elif self.termino1 == '\'\\t\'':
+        return chr(ord('\t')-1)
+      elif self.termino1 == '\'\\\'\'':
+        return chr(ord('\'')-1)
+      elif self.termino1 == '\'\\\'':
+        return chr(ord('\\')-1)
+        
+      if esId(self.termino1):
+
+        # -- id de caracter escapado
+        if getValor(env,self.termino1) == '\'\\n\'':
+          return chr(ord('\n')-1)
+        elif getValor(env,self.termino1) == '\'\\t\'':
+          return chr(ord('\t')-1)
+        elif getValor(env,self.termino1) == '\'\\\'\'':
+          return chr(ord('\'')-1)
+        elif getValor(env,self.termino1) == '\'\\\'':
+          return chr(ord('\\')-1)
+
+        return '\''+chr(ord(getValor(env,self.termino1).strip('\''))+1)+'\''
+      else:
+        return '\''+chr(ord(self.termino1.strip('\''))-1)+'\''
+
+    # Si operacion es (None, #, char/Id)
+    elif self.termino1 is None and self.operador == '#':
+
+          # - es caracter escapado
+      if self.termino1 == '\'\\n\'':
+        return ord('\n')
+      elif self.termino1 == '\'\\t\'':
+        return ord('\t')
+      elif self.termino1 == '\'\\\'\'':
+        return ord('\'')
+      elif self.termino1 == '\'\\\'':
+        return ord('\\')
+
+      if esId(self.termino2):
+
+        # -- id de caracter escapado
+        if getValor(env,self.termino1) == '\'\\n\'':
+          return ord('\n')
+        elif getValor(env,self.termino1) == '\'\\t\'':
+          return ord('\t')
+        elif getValor(env,self.termino1) == '\'\\\'\'':
+          return ord('\'')
+        elif getValor(env,self.termino1) == '\'\\\'':
+          return ord('\\')
+
+        return ord(getValor(env,self.termino1).strip('\''))
+      else:
+        return ord(self.termino2.strip('\''))
+
+    # Operaciones aritmeticas
+    if self.operador == '+':
+      salida = self.termino1.operacion.resultado(env) + self.termino2.operacion.resultado(env)
+    elif self.operador == '-':
+      salida = self.termino1.operacion.resultado(env) - self.termino2.operacion.resultado(env)
+    elif self.operador == '*':
+      salida = self.termino1.operacion.resultado(env) * self.termino2.operacion.resultado(env)
+    elif self.operador == '/':
+      salida = self.termino1.operacion.resultado(env) // self.termino2.operacion.resultado(env)
+    elif self.operador == '%':
+      salida = self.termino1.operacion.resultado(env) % self.termino2.operacion.resultado(env)
+
+    # Operaciones booleanas
+    elif self.operador == '/\\':
+      salida = self.termino1.operacion.resultado(env) and self.termino2.operacion.resultado(env)
+    elif self.operador == '\\/':
+      salida = self.termino1.operacion.resultado(env) or self.termino2.operacion.resultado(env)
+
+    # Operaciones relacionales
+    elif self.operador == '<':
+      salida = self.termino1.operacion.resultado(env) < self.termino2.operacion.resultado(env)
+    elif self.operador == '>':
+      salida = self.termino1.operacion.resultado(env) > self.termino2.operacion.resultado(env)
+    elif self.operador == '<=':
+      salida = self.termino1.operacion.resultado(env) <= self.termino2.operacion.resultado(env)
+    elif self.operador == '=':
+      salida = self.termino1.operacion.resultado(env) == self.termino2.operacion.resultado(env)
+    elif self.operador == '>=':
+      salida = self.termino1.operacion.resultado(env) >= self.termino2.operacion.resultado(env)
+    elif self.operador == '/=':
+      salida = self.termino1.operacion.resultado(env) != self.termino2.operacion.resultado(env)
+    
+    # Operaciones de arreglos
+    elif self.operador == '$':
+      salida = self.termino2.operacion.resultado(env)
+      salida = [salida.pop()]+salida
+
+    elif self.operador == '::':
+
+      if not isinstance(self.termino1.operacion.resultado(env),list):
+        t1 = [self.termino1.operacion.resultado(env)]
+      if not isinstance(self.termino2.operacion.resultado(env),list):
+        t2 = [self.termino2.operacion.resultado(env)]
+
+      salida = self.termino1.operacion.resultado(env) + self.termino2.operacion.resultado(env)
+
+    return salida
+
+'''
+  ArrayExpr: Expresiones de arreglo.
+
+              Cuentan como operacion porque retornan un valor
+
+'''
+
+class ArrayExpr:
+
+  def __init__(self,variable,indice):
+    self.variable = variable
+    self.indice = indice
+
+  def resultado(self,env):
+
+    if isinstance(self.indice,int):
+      indiceReal = self.indice
+    elif isinstance(self.indice,str):
+      indiceReal = getValor(env,self.indice)
+    elif isinstance(self.indice,Node):
+      indiceReal = self.indice.operacion.resultado(env)
+
+    if indiceReal < 0:
+      raise ErrorAsignacion(indiceReal,'El índice no puede ser negativo')
+    try:
+      salida = getValor(env,self.variable)[indiceReal]
+    except IndexError:
+      raise ErrorAsignacion(indiceReal,'Índice no corresponde al tamaño del arreglo')
+    if salida == None:
+      raise ErrorAsignacion(self.indice,'Posición sin inicializar')
+    return salida
+
+'''
+  ArrayAsign: Asignacion a un elemento de un arreglo
+              Es una instruccion
+
+'''
+
+class ArrayAsign:
+
+  def __init__(self,variable,indice,expresion):
+    self.variable = variable
+    self.indice = indice
+    self.expresion = expresion
+
+  def ejecutar(self,env):
+
+    # print(self.indice,'CORU')
+    if isinstance(self.indice,int):
+      indiceReal = self.indice
+    elif isinstance(self.indice,str):
+      indiceReal = getValor(env,self.indice)
+    elif isinstance(self.indice,Node):
+      indiceReal = self.indice.operacion.resultado(env)
+
+    if indiceReal < 0:
+      raise ErrorAsignacion(indiceReal,'El indice no puede ser negativo')
+
+    try:
+      if isinstance(self.expresion,int):
+        getValor(env,self.variable)[indiceReal] = self.expresion
+      elif isinstance(self.expresion,Node):
+        getValor(env,self.variable)[indiceReal] = self.expresion.operacion.resultado(env)
+      else:
+        getValor(env,self.variable)[indiceReal] = getValor(env,self.expresion)
+    except IndexError:
+      raise ErrorAsignacion(indiceReal,'Índice no corresponde al tamaño del arreglo')
+      sys.exit(1)
+
+'''
+  
+  Declaracion: Declara una variable 'var...'
+
+'''
+
+class Declaracion:
+
+  table = []
+  lista = []
+  
+  def __init__(self,sucesion,tipo):
+    self.sucesion = sucesion
+    self.tipo = tipo
+    self.arrayList = []  
+
+  def ejecutar(self,env):
+
+    # Primero ver si es de array
+    if isinstance(self.tipo,Node):
+      if len(self.tipo.children)>0:
+        self.arrayDfs(self.tipo)
+        self.buildArray(env)
+
+        for key in self.sucesion.instruccion.tabla.keys():
+          env.put(key,type(self.arrayList),self.arrayList)
+          self.lista.append(key)
+        return
+  
+    # De no ser array, trabajo la tabla
+      else:
+
+        tipoDeVar = ''
+
+        for key in self.sucesion.instruccion.tabla.keys():
+          self.lista.append(str(key))
+          if key not in env.table.keys():
+            env.table[key] = None
+          valor = env.table[key]
+
+          if isinstance(valor,list):
+            valor = valor[1]
+          if esId(valor):
+            valor = getValor(env,valor)
+          if isinstance(self.sucesion.instruccion.tabla[key],Node):
+            tipoDeVar = type(True)
+          elif tipoDeVar == None:
+            tipoDeVar = self.tipo.leaf[0]
+
+            if tipoDeVar == 'int':
+              tipoDeVar = type(0)
+            elif tipoDeVar == 'char':
+              tipoDeVar = type('a')
+            elif tipoDeVar == 'bool':
+              tipoDeVar = type(True)
+
+          else:
+            tipoDeVar = type(self.sucesion.instruccion.tabla[key])
+          
+          self.table = env.table
+          env.put(key,tipoDeVar,valor)
+
+    # print(self.lista)
+
+  # Ayuda a crear el arreglo. Lo devuelve en forma verbosa
+  def arrayDfs(self,raiz):
+
+    if raiz.leaf != None:
+
+      if raiz.leaf in ('int','bool','char'):
+        self.arrayList.append(raiz.leaf)
+      else:
+        for x in range(len(raiz.leaf)):
+          self.arrayList.append(raiz.leaf[x])
+
+    for y in raiz.children:
+      self.arrayDfs(y)
+
+  # Construye el arreglo a partir de la forma verbosa
+  def buildArray(self,env):
+
+    salida = None
+
+    for x in range(len(self.arrayList)-2,-1,-1):
+      if self.arrayList[x] == 'array':
+        pass
+      elif esId(self.arrayList[x]):
+        salida = [salida]*getValor(env,self.arrayList[x])
+      elif isinstance(self.arrayList[x],int):
+        salida = [salida]*self.arrayList[x]
+    self.arrayList = salida
+
+'''
+  Declaraciones: Conjunto de declaraciones
+
+
+'''
+class Declaraciones:
+
+  def __init__(self,leaf,child=None):
+    self.leaf = leaf
+    self.child = child
+
+  def ejecutar(self,env):
+    self.leaf.instruccion.ejecutar(env)
+    if self.child != None:
+      self.child.instruccion.ejecutar(env)
+    
+'''
+  Sucesion: Sucesion de variables, comas y
+            asignaciones
+
+'''
+class Sucesion:
+
+  tabla = {}
+
+  def __init__(self,variable,valor):
+    self.variable = variable
+    self.valor = valor
+    self.tabla[variable] = valor
+
+  def agrega(self,nueva):
+    self.tabla[variable] = valor
+
+
+'''
+  Secuenciacion: Secuencia de instrucciones
+
+'''
+class Secuenciacion:
+
+  def __init__(self,child):
+    self.child = child
+  
+  def ejecutar(self,env):
+    self.child.ejecutar(env)
+
+'''
+  Instrucciones: Auxiliar para eliminar recursion
+                de secuenciacion
+
+'''
+class Instrucciones:
+  def __init__(self,leaf,child=None):
+    self.leaf = leaf
+    self.child = child
+
+  def ejecutar(self,env):
+    print(self.leaf,'asf')
+    self.leaf.instruccion.ejecutar(env)
+    if self.child != None:
+      print(self.child,'asf')
+      self.child.instruccion.ejecutar(env)
+
+'''
+  Asignacion: Asigna un valor a una variable
+
+'''
+
+class Asignacion:
+
+  def __init__(self,variable,valor):
+    self.variable = variable
+    self.valor = valor
+    
+  def ejecutar(self,env):
+
+    # print('asig ',self.variable,self.valor)
+
+
+    # Se determina el tipo de valor
+    if isinstance(self.valor,Node):
+      salida = self.valor.operacion.resultado(env)
+
+    if isinstance(self.valor,ArrayExpr):
+      salida = self.valor.resultado(env)
+
+    elif isinstance(self.valor,Operacion):
+      salida = self.valor.resultado(env)
+    else:
+      salida = self.valor
+
+    if  isinstance(salida,Node):
+      salida = salida.operacion.resultado(env)
+
+    elif not isinstance(salida,list):
+      while esId(salida):
+          salida = getValor(env,salida)
+
+    if self.variable == 'x':
+      if self.variable in env.table.keys():
+        if env.table['iterador'][0] == self.variable:
+          raise ErrorControl(self.variable,'No se puede modificar variable de control')
+
+    if isinstance(env.get(self.variable)[0],Node):
+      tipoDeVar = env.get(self.variable)[0].type
+    else:
+      tipoDeVar = env.get(self.variable)[0]
+
+
+    # Se evaluan errores
+    
+    if str(env.get(self.variable)[0]) == str(type(None)):
+      env.get(self.variable)[1] = salida
+      return
+    
+    elif str(tipoDeVar) != str(type(salida)):
+      raise ErrorTipo(salida,'Valor no corresponde al tipo')
+
+    # Se asigna finalmente
+    env.get(self.variable)[1] = salida
+
+
+'''
+  Print: Imprime una expresion
+
+'''
+
+class Print:
+
+  def __init__(self,expresion):
+    self.expresion = expresion
+
+  def ejecutar(self,env):
+
+    if isinstance(self.expresion,Node):
+      print(self.expresion.operacion.resultado(env))
+    else:
+      print(getValor(env,self.expresion))
+
+'''
+  Read: Pide al usuario una entrada
+        Solo se esperan chars, bool basicos
+        y numeros
+
+'''
+
+class Read:
+
+  def __init__(self,ident):
+    self.identificador = ident
+
+  def ejecutar(self,env):
+    entrada = input()
+
+    if entrada.isdigit():
+      entrada = int(entrada)
+
+    elif entrada == 'true':
+      entrada = True
+
+    elif entrada == 'false':
+      entrada = False
+
+    asignacion = Asignacion(self.identificador,entrada)
+    asignacion.ejecutar(env)
+
+'''
+  If: Condicional. En el recorrido se 
+      toma en cuenta la condicion
+
+'''
+class If:
+
+  def __init__(self,cond,inst0,inst1=None):
+    self.condicion = cond
+    self.instruccionIf = inst0
+    self.instruccionElse = inst1
+
+  def ifTrue(self,env):
+    self.instruccionIf.instruccion.ejecutar(env)
+
+  def ifElse(self,env):
+    if self.instruccionElse != None:
+      self.instruccionElse.instruccion.ejecutar(env)
+    
+'''
+  While: Iteracion indefinida. Se maneja en scope_dfs
+
+'''
+
+class While:
+
+  def __init__(self,cond,inst):
+    self.condicion = cond
+    self.instruccionWhile = inst
+
+  def ocurre(self,env,cond=None):
+    return True  == self.condicion.operacion.resultado(env)
+
+  def ejecutar(self,env):
+    self.instruccionWhile.ejecutar(env)
+    print(self.instruccionWhile)
+
+
+'''
+  For: Iteracion definida.
+
+'''
+
+class For:
+
+  def __init__(self,lower,upper,inst,step=None):
+    self.lim_inferior = lower
+    self.lim_superior = upper
+    self.instruccionFor = inst
+    self.step = step
+
+  def ejecutar(self,env):
+    self.instruccionFor.instruccion.ejecutar(env)
+
+'''
+  esId: Revisa si el string de entrada es un Id
+
+'''
+def esId(string):
+  if isinstance(string,int):
+    string = str(string)
+
+  if string is None:
+    return False
+
+  if string in ('True','False'):
+    return False
+
+  return (re.fullmatch('[a-zA-Z][a-zA-Z_0-9]*',string) and
+               string not in ('true','false'))
+
+'''
+  cambiaExec: Cambia el estatus de "ejecutar o no"
+  en un nodo y sus hijos
+
+'''
+
+def cambiaExec(raiz,cambio):
+
+  if raiz == None:
+    return  
+  raiz.execFlag = cambio
+
+  if raiz.children is not None:
+    if len(raiz.children) > 0:
+      for x in raiz.children:
+        cambiaExec(x,cambio)
+
+'''
+  Mezcla dos diccionarios
+'''
+def mezcla_dicts(x, y):
+  z = x.copy()
+  z.update(y)
+  return z
+
+# Raiz del arbol sintactico abstracto
+groot = None
+
+# Para los alcances de variables
+top = None
+saved = None
+valor = None
+
+# Para imprimir menos errores
+sys.tracebacklimit = 4
+
+'''
+
+  Producciones de la gramatica de BasicTran
+
+'''
+def p_programa(p):
+    '''
+    programa : with
+    programa : begin
+    '''
+    global groot, top
+
+    top = None
+
+    p[0] = p[1]
+    groot = p[0]
+
+
+def p_with(p):
+    '''
+    with : TkWith declaraciones begin
+    '''
+
+    if len(p)==3:
+        p[0] = Node("WITH",[p[2]],p[1],0)
+    else:
+        p[0] = Node("WITH",[p[2],p[3]],p[1],0)
+
+def p_declaraciones(p):
+    '''
+    declaraciones : declaracion declaraciones
+                  | lambda
+    '''
+    if len(p)==3:
+      p[0] = Node("DECLARACIONES",[p[1],p[2]],None)
+      p[0].instruccion = Declaraciones(p[1],p[2])
+    else:
+      p[0] = p[1]
+
+
+def p_begin(p):
+    '''
+    begin : TkBegin secuenciacion end
+          | TkBegin end
+    '''
+
+    #print(p[0:len(p)])
+    if len(p)==4:
+        p[0] = Node("BEGIN",[p[2],p[3]],p[1],0)
+    else:
+        p[0] = Node("BEGIN",[p[2]],p[1],0)
+
+    p[0].instruccion = p[2].instruccion
+
+
+def p_secuenciacion(p):
+    '''
+    secuenciacion : instrucciones
+                  | lambda
+    '''
+    if len(p)==3:
+        p[0] = Node("SECUENCIACION",[p[1],p[2]],None,0)
+        p[0].instruccion = Secuenciacion(p[1].instruccion,p[2].instruccion)
+
+        # if p[2] == None:
+        #   p[0].instruccion = Secuenciacion(p[1].instruccion)
+        # else:
+        #   p[0].instruccion = Secuenciacion(p[1].instruccion,p[2])
+    elif len(p)==2:
+
+        if isinstance(p[1],Node):
+          p[0] = Node('SECUENCIACION',[p[1]],None)
+          p[0].instruccion = Secuenciacion(p[1].instruccion)
+        else:
+          p[0] = p[1]
+
+def p_instrucciones(p):
+    '''
+    instrucciones : instruccion instrucciones
+                  | lambda
+    '''
+    if len(p) == 3:
+      p[0] = Node('INSTRUCCIONES',(p[1],p[2],None))
+      p[0].instruccion = Instrucciones(p[1],p[2])
+
+    else:
+      p[0] = p[1]
+
+
+def p_end(p):
+    '''
+    end : TkEnd
+    '''
+
+    p[0] = Node("END",None,p[1],0)
+
+def p_declaracion(p):
+    '''
+    declaracion : TkVar sucesion TkDosPuntos tipo
+
+    '''
+    p[0] = Node('DECLARACION',[p[2],p[4]],[p[1],p[3]])
+    p[0].instruccion = Declaracion(p[2],p[4])
+    
+
+def p_sucesion(p):
+    '''
+    sucesion : asignacion
+             | sucesion TkComa sucesion
+             | TkId 
+    '''
+    if not isinstance(p[1],str):
+      if p[1].type == 'ASIGN':
+        p[0] = Node('SUCESION',[p[1]],None)
+        var = p[1].instruccion.variable
+        valor = p[1].instruccion.valor
+        p[0].instruccion = Sucesion(var,valor)
+      
+      elif len(p) > 2:
+        p[0] = Node('SUCESION',[p[1],p[3]],[p[2]])
+
+        dict1 = p[1].instruccion.tabla
+        dict2 = p[3].instruccion.tabla
+        mezcla = mezcla_dicts(dict1,dict2)
+
+        p[0].instruccion = p[1].instruccion
+        p[0].instruccion.tabla = mezcla
+
+    else:
+      p[0] = Node('SUCESION',None,[p[1]])      
+      p[0].instruccion = Sucesion(p[1],None)
+
+def p_tipo(p):
+    '''
+    tipo : TkInt
+         | TkBool
+         | TkChar
+         | array
+    '''
+
+    if isinstance(p[1],Node):
+        p[0] = Node('TIPO',[p[1]],None,0)
+    else:
+        p[0] = Node("TIPO",None,p[1],0)
+
+def p_lambda(p):
+    '''
+    lambda :
+    '''
+    pass
+
+def p_array(p):
+    '''
+    array : TkArray TkCorcheteAbre TkNum TkCorcheteCierra TkOf tipo
+          | TkArray TkCorcheteAbre TkId TkCorcheteCierra TkOf tipo
+          | TkArray TkCorcheteAbre aritmexpr TkCorcheteCierra TkOf tipo
+    '''
+    if isinstance(p[3],int):
+      if isinstance(p[6],Node):
+        p[0] = Node('ARRAY',[p[6]],[p[1],p[3]])
+
+    elif isinstance(p[3],Node):
+        if p[3].type == 'ARITMETICA':
+          p[0] = Node('ARRAY',[p[6]],[p[1],p[3]])
+        else:
+          p[0] = Node('ARRAY',[p[6]],[p[1],p[3]])
+    elif re.fullmatch('[a-zA-Z][a-zA-Z_0-9]*',p[3]):
+      p[0] = Node('ARRAY',[p[6]],[p[1],p[3]])
+
+def p_instruccion(p):
+    '''
+    instruccion : begin
+                | with
+                | asignacion TkPuntoComa
+                | print TkPuntoComa
+                | read TkPuntoComa
+                | while
+                | for
+                | condicional
+                | lambda
+    '''
+    if len(p)==2:
+        p[0] = Node('INSTRUCCION',[p[1]],None,0)
+        p[0].instruccion = p[1].instruccion
+    else:
+        p[0] = Node('INSTRUCCION',[p[1]],[p[2]],0)
+        p[0].instruccion = p[1].instruccion
+
+
+def p_asignacion(p):
+    '''
+    asignacion : TkId TkAsignacion expresion
+               | TkId TkAsignacion TkCaracter
+               | TkId TkAsignacion TkId
+               | TkId TkAsignacion TkNum
+               | TkId TkCorcheteAbre TkNum TkCorcheteCierra TkAsignacion expresion
+               | TkId TkCorcheteAbre TkId TkCorcheteCierra TkAsignacion expresion
+               | TkId TkCorcheteAbre aritmexpr TkCorcheteCierra TkAsignacion expresion
+               | TkId TkAsignacion TkId TkCorcheteAbre TkNum TkCorcheteCierra
+               | TkId TkAsignacion TkId TkCorcheteAbre TkId TkCorcheteCierra
+    '''
+
+    if isinstance(p[3],Node) and len(p) == 4:
+
+        # Caso 0 TkId TkAsignacion expresion
+        p[0] = Node("ASIGN",[p[3]],[p[1],p[2]],0)
+        p[0].operacion = p[3].operacion
+        p[0].instruccion = Asignacion(p[1],p[3])
+
+    elif len(p)==4:
+
+        # Caso 1 TkId TkAsignacion TkCaracter/Id/Num...
+        p[0] = Node("ASIGN",None,[p[1],p[2],p[3]],0)
+        p[0].operacion = Operacion(p[3])
+        p[0].instruccion = Asignacion(p[1],p[3])
+    
+    elif isinstance(p[6],Node):
+        
+        # Caso 2
+        print(p[0:],'ejele')
+        p[0] = Node("ASIGN",[p[6]],[p[1],p[2],p[3],p[4],p[5]],0)
+        p[0].instruccion = ArrayAsign(p[1],p[3],p[6])
+
+    else:
+        # Caso 3
+        p[0] = Node("ASIGN",None,[p[1],p[2],p[3],p[4],p[5],p[6]],0)
+
+        arr = ArrayExpr(p[3],p[5])
+        p[0].instruccion = Asignacion(p[1],arr)
+
+def p_condicional(p):
+    '''
+    condicional : TkIf boolean TkHacer secuenciacion TkOtherwise TkHacer secuenciacion end
+                | TkIf boolean TkHacer secuenciacion end
+                | TkIf relexpr TkHacer secuenciacion TkOtherwise TkHacer secuenciacion end
+                | TkIf relexpr TkHacer secuenciacion end
+    '''
+
+    if len(p)==9:
+        p[0] = Node('CONDICIONAL',[p[2],p[4],p[7],p[8]],[p[1],p[3],p[5],p[6]],0)
+        p[0].instruccion = If(p[2],p[4],p[7])
+    else:
+        p[0] = Node('CONDICIONAL',[p[2],p[4],p[5]],[p[1],p[3]],0)
+        p[0].instruccion = If(p[2],p[4])
+
+def p_while(p):
+    '''
+    while : TkWhile boolean TkHacer secuenciacion end
+    '''
+
+    p[0] = Node('WHILE',[p[2],p[4],p[5]],[p[1],p[3]],0)
+    p[0].instruccion = While(p[2],p[4].instruccion)
+
+def p_for(p):
+    '''
+    for : TkFor TkId TkFrom aritmexpr TkTo aritmexpr TkHacer secuenciacion end
+        | TkFor TkId TkFrom aritmexpr TkTo aritmexpr TkStep aritmexpr TkHacer secuenciacion end
+    '''
+
+    if len(p) == 10:
+      p[0] = Node('FOR',[p[8],p[9]],[p[1],p[2],p[3],p[4],p[5],p[6],p[7]],0)
+      p[0].instruccion = For(p[4],p[6],p[8])
+
+    else:
+      p[0] = Node('FOR',[p[9],p[10]],[p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8]],0)
+      p[0].instruccion = For(p[4],p[6],p[10],p[8])
+
+def p_read(p):
+    '''
+    read : TkRead TkId
+    '''
+
+    p[0] = Node('READ',None,[p[1],p[2]],0)
+    p[0].instruccion = Read(p[2])
+
+def p_print(p):
+    '''
+    print : TkPrint TkId
+          | TkPrint expresion
+    '''
+
+    if isinstance(p[2],Node):
+      p[0] = Node('PRINT',[p[2]],[p[1]],0)
+      p[0].instruccion = Print(p[2])
+    else:
+      p[0] = Node('PRINT',None,[p[1],p[2]],0)
+      p[0].instruccion = Print(p[2])
+
+def p_aritmexpr(p):
+    ''' 
+    aritmexpr : TkNum
+              | TkId
+              | aritmexpr TkSuma aritmexpr
+              | aritmexpr TkResta aritmexpr
+              | aritmexpr TkMult aritmexpr
+              | aritmexpr TkDiv aritmexpr
+              | aritmexpr TkMod aritmexpr
+              | TkParAbre aritmexpr TkParCierra
+    '''
+    
+    if isinstance(p[1],str) or isinstance(p[1],int):
+        p[0] = Node('ARITMETICA',None,[p[1]],0)
+        p[0].operacion = Operacion(p[1])
+
+    elif len(p) == 4:
+        p[0] = Node('ARITMETICA',[p[1],p[3]],[p[2]],0)
+        p[0].operacion = Operacion(p[1],p[2],p[3])
+
+    elif p[1] == '(':
+        p[0] = Node('ARITMETICA',[p[2]],[p[1],p[3]])  
+        p[0].operacion = p[2].operacion
+
+
+def p_menosUnario(p):
+    '''
+    aritmexpr  : TkResta TkNum %prec MenosUnario
+               | TkResta TkId %prec MenosUnario
+               | TkResta TkParAbre aritmexpr TkParCierra
+    '''
+    if len(p)==3:
+        p[0] = Node('MENOSUNARIO',None,[p[1],p[2]],0)
+        p[0].operacion = Operacion(None,p[1],p[2])
+    
+    if len(p)==5:
+        p[0] = Node('MENOSUNARIO',[p[3]],[p[1],p[2],p[4]],0)
+        p[0].operacion = Operacion(None,p[1],p[3])
+
+def p_boolean(p):
+    ''' 
+    boolean : TkTrue
+            | TkFalse
+            | TkId
+            | TkNegacion boolean
+            | boolean TkConjuncion boolean
+            | boolean TkDisyuncion boolean
+            | boolean TkIgual boolean
+            | boolean TkDesigual boolean
+            | relexpr
+    '''
+
+    if len(p)==2 and isinstance(p[1],str):
+        p[0] = Node('BOOLEAN',None,[p[1]],0)
+        p[0].operacion = Operacion(p[1])
+
+    elif len(p)==2 and isinstance(p[1],Node):
+        p[0] = Node('BOOLEAN',[p[1]],None)
+
+        if p[1].type == 'RELACION':
+          p[0].operacion = p[1].operacion
+        else:
+          p[0].operacion = Operacion(p[1])
+
+    elif len(p)==3:
+        p[0] = Node('BOOLEAN',[p[2]],[p[1]])
+        p[0].operacion = Operacion(None,p[1],p[2])
+
+    elif len(p)==4:
+        p[0] = Node('BOOLEAN',[p[1],p[3]],[p[2]],0)
+        p[0].operacion = Operacion(p[1],p[2],p[3])
+
+    else:
+        p[0] = Node('BOOLEAN',[p[1],p[3]],[p[2]],0)
+
+
+def p_carexpr(p):
+    '''
+    carexpr : literales
+            | TkCaracter TkSiguienteCar
+            | TkId TkAnteriorCar
+            | TkId TkSiguienteCar
+            | TkCaracter TkAnteriorCar
+            | TkValorAscii TkCaracter
+            | TkValorAscii TkId
+    '''
+
+    if len(p) == 2:
+        p[0] = Node('EXPR_CARACTER',[p[1]],None,0)
+        p[0].operacion = p[1].operacion
+
+    elif p[1] == '#':
+        p[0] = Node('EXPR_CARACTER',None,[p[1],p[2]],0)
+        p[0].operacion = Operacion(None,p[1],p[2])
+
+    else:
+        p[0] = Node('EXPR_CARACTER',None,[p[1],p[2]],0)
+        p[0].operacion = Operacion(p[1],p[2],None)
+
+def p_literales(p):
+    '''
+    literales : TkNewline
+              | TkTab
+              | TkInversa
+              | TkSimple
+              | TkCaracter
+    '''
+    p[0] = Node('CARACTER',None,[p[1]],0)
+    p[0].operacion = Operacion(p[1])
+
+
+def p_arrexpr(p):
+    '''
+    arrexpr : TkId 
+            | TkShift arrexpr
+            | arrexpr TkConcatenacion arrexpr
+            | TkId TkCorcheteAbre TkId TkCorcheteCierra
+            | TkId TkCorcheteAbre TkNum TkCorcheteCierra
+            | TkId TkCorcheteAbre aritmexpr TkCorcheteCierra
+    '''
+
+    if len(p) == 2:
+        p[0] = Node('EXP_ARREGLO',None,[p[1]],0)
+        p[0].operacion = Operacion(p[1])
+
+    elif len(p) == 3:
+        p[0] = Node('EXP_ARREGLO',[p[2]],[p[1]],0)
+        p[0].operacion = Operacion(None,p[1],p[2])
+
+
+    elif len(p) == 4 and isinstance(p[3],Node):
+        p[0] = Node('EXP_ARREGLO',[p[1],p[3]],[p[2]],0)
+        p[0].operacion = Operacion(p[1],p[2],p[3])
+
+    elif len(p) == 5 and isinstance(p[3],int):
+        p[0] = Node('EXP_ARREGLO',[p[1]],[p[2],p[3],p[4]],0)
+        p[0].operacion = ArrayExpr(p[1],p[3])
+    
+    else:
+        p[0] = Node('EXP_ARREGLO',None,[p[1],p[2],p[3],p[4]],0)
+        p[0].operacion = ArrayExpr(p[1],p[3])
+
+def p_relexpr(p):
+    '''
+    relexpr : aritmexpr TkMenor aritmexpr
+            | aritmexpr TkMenorIgual aritmexpr
+            | aritmexpr TkMayor aritmexpr
+            | aritmexpr TkMayorIgual aritmexpr
+            | aritmexpr TkIgual aritmexpr
+            | aritmexpr TkDesigual aritmexpr
+    '''
+
+    p[0] = Node('RELACION',[p[1],p[3]],p[2],0)
+    p[0].operacion = Operacion(p[1],p[2],p[3])
+
+def p_expresion(p):
+    '''
+    expresion : TkParAbre expresion TkParCierra
+              | TkId
+              | aritmexpr
+              | boolean
+              | carexpr
+              | arrexpr
+    '''
+
+    if len(p)==2:
+        if esId(str(p[1])):
+            p[0] = Node('EXPRESION',None,[p[1]],0)
+            p[0].operacion = Operacion(p[1])
+        else:
+            p[0] = Node('EXPRESION',[p[1]],None,0)
+            p[0].operacion = p[1].operacion
+
+    else:
+        p[0] = Node('EXPRESION',[p[2]],None,0)
+        p[0].operacion = p[2].operacion
+    
+
+def p_error(p):
+    print("Error de sintaxis en \""+str(p.value)+"\"")
+    sys.exit()
+
+
+'''
+  
+  Clases de errores para el análisis estático
+  y dinámico de BasicTran
+  
+'''
+
+class Error(Exception):
+  pass
+
+class ErrorOcurrencia(Error):
+
+  def __init__(self, expression, message):
+    self.expression = expression
+    self.message = message
+
+class ErrorDeclaracion(Error):
+
+  def __init__(self, expression, message):
+    self.expression = expression
+    self.message = message
+
+class ErrorControl(Error):
+
+  def __init__(self, expression, message):
+    self.expression = expression
+    self.message = message
+
+class ErrorTipo(Error):
+
+  def __init__(self, expression, message):
+    self.expression = expression
+    self.message = message
+
+class ErrorAsignacion(Error):
+
+  def __init__(self, expression, message):
+    self.expression = expression
+    self.message = message
+
+
+'''
+
+  Clase Env: De entorno/alcance de variables
+
+'''
+
+class Env():
+
+  def __init__(self,p):
+    self.prev = p
+    self.table = {}
+    self.flag_error_ocurrencias = False
+
+  # Coloca una variable con su tipo y valor en el alcance
+  def put(self,s,tipo,valor):
+    
+    if valor is None or str(valor).strip()=='':
+      pass
+
+    elif tipo == 'int':
+
+      if (isinstance(valor,int)):
+        pass
+      elif isinstance(getValor(self,valor),int):
+        pass
+      else:
+        raise ErrorTipo(s,'Valor no corresponde al tipo')
+
+    elif tipo == 'char':
+
+      if isinstance(valor,int):
+        raise ErrorTipo(s,'Valor no corresponde al tipo')
+
+      if valor is None:
+        pass
+      elif re.fullmatch('\'[a-zA-Z_][a-zA-Z_0-9]*\'',valor):
+        pass
+      elif re.fullmatch('[a-zA-Z][a-zA-Z_0-9]*',valor):
+        if self.get(valor) != 'char':
+          raise ErrorTipo(s,'Asignacion no es igual al tipo de variable')
+
+
+    # Aqui se asigna
+    self.table[s] = [tipo,valor]
+
+  # Consigue una variable en el alcance
+  def get(self,s,ocurrencias=None):
+
+    e = self
+
+    while e!=None:
+      if s in e.table.keys():
+        return e.table[s]
+      else:
+        e = e.prev
+    return None
+
+
+
+'''
+
+  getValor: Obtiene el valor de una variable desde su alcance
+
+'''
+def getValor(env,var):
+
+  try:
+    res = env.get(var)[1]
+  except:
+    raise ErrorDeclaracion(var,'Variable sin declarar')
+    
+  if res is None:
+    raise ErrorDeclaracion(var,'Variable sin inicializar')
+
+  return res
+
+'''
+  Obtiene el tipo de una variable desde su alcance
+'''
+def getTipo(env,var):
+  return env.get(var)[0]
+
+
+'''
+
+  scope_dfs: 
+
+  Algoritmo de Depth-First-Search
+  Crea el alcance de variables,
+  decora el arbol abstracto sintactico
+  e interpreta el lenguaje BasicTran
+
+'''
+def scope_dfs(raiz):
+
+    global top, saved
+
+    if (isinstance(raiz, Node) and raiz.execFlag):
+
+      # print(raiz.type)
+
+      if raiz.type == 'WITH':
+          saved = top
+          top = Env(top)
+          # print('{')          
+          declFlag = True
+
+      elif raiz.type == 'BEGIN':
+          # print('BLOQUE: '+str(top.table))
+          declFlag = False
+
+      elif raiz.type == 'END':
+          top = saved
+          # print('}')
+
+      elif raiz.type == 'DECLARACIONES':       
+        # cambiaExec(raiz,False)        
+        raiz.instruccion.ejecutar(top)
+
+
+      elif raiz.type == 'ASIGN':
+        # print('asignacion',raiz.instruccion.variable,raiz.instruccion.valor)
+        raiz.instruccion.ejecutar(top)
+      
+      elif raiz.type == 'WHILE':
+        saved = top
+        # print('{')
+        cambiaExec(raiz,False)
+        flag = raiz.children[0].operacion.resultado(top)
+
+        while (flag not in (False,None)):
+          raiz.instruccion.ejecutar(top)
+          flag = raiz.children[0].operacion.resultado(top)
+
+
+      elif raiz.type == 'FOR':
+        saved = top
+        top = Env(top)
+        # print('{')
+
+        inferior = raiz.instruccion.lim_inferior.operacion.resultado(top)
+        superior = raiz.instruccion.lim_superior.operacion.resultado(top)
+        top.put('iterador',raiz.leaf[1],0)
+        top.put(raiz.leaf[1],'int',inferior)
+
+
+        if raiz.instruccion.step is not None:
+          step = raiz.instruccion.step.operacion.resultado(top)
+        else:
+          step = None
+
+        while getValor(top,raiz.leaf[1]) < superior:
+          raiz.instruccion.ejecutar(top)
+          if step is None:
+            top.get(raiz.leaf[1])[1] = top.get(raiz.leaf[1])[1]+1
+          else:
+            top.get(raiz.leaf[1])[1] = top.get(raiz.leaf[1])[1]+step
+
+        # print('FOR: '+str(top.table))
+
+      elif raiz.type == 'CONDICIONAL':
+
+        saved = top
+        # print('{')
+        flag = raiz.children[0].operacion.resultado(top)
+        
+
+        # Con otherwise.
+        if flag:
+          cambiaExec(raiz.children[2],False)
+        else:
+          cambiaExec(raiz.children[1],False)
+        # Sin otherwise
+
+        if len(raiz.children)==1:
+          if Flag:
+            cambiaExec(raiz.children[1],True)
+          else:
+            cambiaExec(raiz.children[1],False)
+
+      elif raiz.type == 'READ':
+        raiz.instruccion.ejecutar(top)
+
+      elif raiz.type == 'PRINT':
+        # printEnv(top)
+        raiz.instruccion.ejecutar(top)
+
+
+      for x in range (len(raiz.children)):
+        scope_dfs(raiz.children[x])
+
+    elif isinstance(raiz, str):
+      pass
+
+
+'''
+  Imprime la tabla de variables 
+  y la de sus entornos padre
+
+'''
+def printEnv(env):
+
+  if env == None:
+    return
+  else:
+    print(env.table)
+    printEnv(env.prev)
+
+
+'''
+
+  Algoritmo de Depth-First-Search
+  para recorer el arbol sintactico abstracto
+
+'''
+def dfs(raiz):
+
+    if isinstance(raiz,Node):
+        raiz.visitado = True
+
+        if raiz.type in ('BEGIN','END'):
+            raiz.tabs-=1
+
+        if raiz.type in ('WITH','FOR','WHILE','IF','BEGIN','SECUENCIACION'):
+            hijo_tabs = raiz.tabs + 1
+        else:
+            hijo_tabs = raiz.tabs
+
+        if raiz.type == 'RELACION':
+            print('\t'*raiz.tabs+raiz.type)
+            print('\t'*raiz.tabs+"- Operacion: " + str(raiz.leaf))
+
+        if raiz.type == 'ASIGN':
+            print('\t'*raiz.tabs+raiz.type)
+            print('\t'*raiz.tabs+ "- Identificador: " + str(raiz.leaf[0]))
+
+        if raiz.type == 'FOR':
+            print('\t'*raiz.tabs+raiz.type)
+            print('\t'*raiz.tabs+ "- Variable: " + str(raiz.leaf[1]))
+            print('\t'*raiz.tabs+ "- Limite inferior: " + str(raiz.leaf[3]))
+            print('\t'*raiz.tabs+ "- Limite superior: " + str(raiz.leaf[5]))
+
+        if raiz.type == 'WHILE':
+            print('\t'*raiz.tabs+raiz.type) 
+
+        if raiz.type == "ARITMETICA":
+                if raiz.leaf == '+' or raiz.leaf == '-' or raiz.leaf == '*' or raiz.leaf == '/':
+                    print("\t"*raiz.tabs + "- Operador: " + str(raiz.leaf))
+                else:
+                    print("\t"*raiz.tabs + "- Operando: " + str(raiz.leaf))
+
+        if raiz.type == 'BOOLEAN':
+            print('\t'*raiz.tabs+raiz.type)
+            print('\t'*raiz.tabs+ "- Simbolo: " + str(raiz.leaf))
+
+        if raiz.type == 'DECLARACION':
+            print('\t'*raiz.tabs+raiz.type)
+            print('\t'*raiz.tabs+ "- Contenedor: " + str(raiz.leaf))
+
+        else:
+            print('\t'*raiz.tabs+raiz.type)
+
+        for x in range(0,len(raiz.children)):
+            if isinstance(raiz.children[x],Node):
+                if not raiz.children[x].visitado:
+                    raiz.children[x].tabs = hijo_tabs
+                    dfs(raiz.children[x])
+            elif isinstance(raiz.children[x],list):
+                for y in range (len(raiz.children[x])):
+                    raiz.children[x][y].tabs = hijo_tabs
+                    dfs(len(raiz.children[x][y]))
+       
+
+
+lexer = lex.lex() 
+parser = yacc.yacc()
+
+final = ""
+
+file = open(sys.argv[1],"r")
+
+
+linea = 0
+
+"""
+    Lexer:
+
+    Evalua cada linea del archivo leido reconociendo cada token
+    o cada error y reportándolo al finalizar la lectura del archivo
+
+"""
+for line in file:
+    lexer.input(line)
+    
+    while True:
+        tok = lexer.token()
+        if not tok: 
+            break
+
+        if (hayError == False):
+          if (tok.type == "TkId"):
+              salida = tok.type+"('"+tok.value+"')"+" "+str(tok.lineno)+" "+str(find_column(tok)) + ", "
+
+          elif (tok.type == "TkNum"):
+              salida = tok.type+"("+str(tok.value)+")"+" "+str(tok.lineno)+" "+str(find_column(tok)) + ", "
+
+          else:
+              salida = tok.type+" "+str(tok.lineno)+" "+str(find_column(tok)) + ", "
+
+          if (linea != tok.lineno):
+              linea = tok.lineno
+              final = final + "\n"
+
+          final = final + salida
+
+        if (hayError == True):
+          final = ""
+
+# Muestra el resultado del lexer
+# print(final)
+
+
+file.seek(0)
+data = file.read()
+
+
+# Muesta el codigo de entrada
+# print(data)
+
+
+# Puesta el resultado del parser
+result = parser.parse(data,tracking=True)
+# print(result)
+
+# Muesta el arbol abstracto sintactico
+# dfs(groot)
+
+
+# Se ejecuta el interpretador
+scope_dfs(groot)
+
+
